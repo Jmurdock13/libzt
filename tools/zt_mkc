@@ -9,7 +9,7 @@ put_header() {
     DN=`dirname $0`
 
 
-    if [ x"$header" != x"" -a -e $header ]; then
+    if [ x"$header" != x"" -a -e "$header" ]; then
         cat $header > $out
     else
         # check to see if you are using an explicit or implicit path
@@ -32,13 +32,18 @@ put_component_c() {
 
     put_header "$file" "$header"
 
+    CFNAME=`echo ${cfname} | tr 'a-z' 'A-Z'`
+
     cat >> ${file} <<EOF
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif /* HAVE_CONFIG_H */
 
+#include <stdlib.h>
+
+#define ${CFNAME}_PRIVATE
 #include "${cfname}.h"
-#include "${cfname}/private.h"
+#undef ${CFNAME}_PRIVATE
 
 void ${prefix}${cname}_destroy(${prefix}${cname} **${cname})
 {
@@ -48,62 +53,8 @@ void ${prefix}${cname}_destroy(${prefix}${cname} **${cname})
     *${cname} = NULL;
 }
 
-EOF
-}
 
-put_component_h() {
-    file=$1
-    cfname=$2
-    cname=$3
-    prefix=$4
-    header=$5
-
-    put_header "$file" "$header"
-
-    CFNAME=`echo ${cfname} | tr 'a-z' 'A-Z'`
-
-    cat >> ${file} <<EOF
-#ifndef _${CFNAME}_H_
-#define _${CFNAME}_H_
-
-#ifdef __cplusplus
-extern "C" {
-#endif /* __cplusplus */
-
-/* public interface */
-typedef struct ${prefix}${cname} ${prefix}${cname};
-
-void ${prefix}${cname}_destroy(${prefix}${cname} **${cname});
-
-#ifdef __cplusplus
-}
-#endif /* __cplusplus */
-
-#include <${cfname}/interface.h>
-
-#endif /* _${CFNAME}_H_ */
-EOF
-}
-
-
-put_private_c() {
-    file=$1
-    cfname=$2
-    cname=$3
-    prefix=$4
-    header=$5
-
-    put_header "$file" "$header"
-
-    cat >> ${file} <<EOF
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif /* HAVE_CONFIG_H */
-
-#include <stdlib.h>
-
-#include "private.h"
-
+/* private side */
 ${prefix}${cname} *
 ${prefix}${cname}_new(${prefix}${cname}_vtbl * vptr)
 {
@@ -118,43 +69,35 @@ ${prefix}${cname}_new(${prefix}${cname}_vtbl * vptr)
 EOF
 }
 
-put_private_h() {
+put_component_h() {
     file=$1
     cfname=$2
     cname=$3
     prefix=$4
     header=$5
 
-    CFNAME=`echo ${cfname} | tr 'a-z' 'A-Z'`
+    shift 5
 
     put_header "$file" "$header"
 
+    CFNAME=`echo ${cfname} | tr 'a-z' 'A-Z'`
+
     cat >> ${file} <<EOF
-/* Private interface to ${cname}
- * You should NOT access this directly
- * unless you are extending the cname with
- * another sub-class
- */
-#ifndef _${CFNAME}_PRIVATE_H_
-#define _${CFNAME}_PRIVATE_H_
+#ifndef _${CFNAME}_H_
+#define _${CFNAME}_H_
 
 #include <stdlib.h>
-#include <${cfname}.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif /* __cplusplus */
 
-/* base class definition */
-struct ${prefix}${cname} {
-    /* base class attributes */
+typedef struct ${prefix}${cname} ${prefix}${cname};
 
-    /* end base class attributes */
-    struct ${prefix}${cname}_vtbl   * vtbl;
-};
+void ${prefix}${cname}_destroy(${prefix}${cname} **${cname});
 
+#ifdef ${CFNAME}_PRIVATE
 /* function pointer table */
-typedef struct ${prefix}${cname}_vtbl ${prefix}${cname}_vtbl;
 struct ${prefix}${cname}_vtbl {
     size_t    size;         /* contains the size of the (sub)class definition */
 
@@ -162,13 +105,33 @@ struct ${prefix}${cname}_vtbl {
     void    (*destructor)(${prefix}${cname} *);
 };
 
+/* base class definition */
+typedef struct ${prefix}${cname}_vtbl ${prefix}${cname}_vtbl;
+struct ${prefix}${cname} {
+    /* base class attributes */
+
+    /* end base class attributes */
+    struct ${prefix}${cname}_vtbl   * vtbl;
+};
+
 /* base allocator */
 ${prefix}${cname} * ${prefix}${cname}_new(${prefix}${cname}_vtbl * vptr);
+#endif /* ${CFNAME}_PRIVATE */
 
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
-#endif /* _${CFNAME}_PRIVATE_H_ */
+
+/* sub-class headers */
+EOF
+    for sub in $@; do
+        cat >> ${file} <<EOF
+#include <${cfname}/${cfname}_${sub}.h>
+EOF
+    done
+
+    cat >> ${file} <<EOF
+#endif /* _${CFNAME}_H_ */
 EOF
 }
 
@@ -189,7 +152,7 @@ put_sub_h() {
 #ifndef _${CFNAME}_${SUB}_H_
 #define _${CFNAME}_${SUB}_H_
 
-#include <${cfname}.h>
+#include <${cfname}/${cfname}.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -220,7 +183,9 @@ put_sub_c() {
 #include <config.h>
 #endif /* HAVE_CONFIG_H */
 
-#include "private.h"
+#define ${CFNAME}_PRIVATE
+#include "${cname}.h"
+#undef ${CFNAME}_PRIVATE
 
 /* locals */
 static void destructor(${prefix}${cname} * ${cname});
@@ -265,90 +230,6 @@ EOF
 
 }
 
-put_interface_h() {
-    file=$1
-    cfname=$2
-    cname=$3
-    prefix=$4
-    header=$5
-
-    CFNAME=`echo ${cfname} | tr 'a-z' 'A-Z'`
-
-    shift 5
-
-    put_header "$file" "$header"
-
-    cat >> ${file} <<EOF
-#ifndef _${CFNAME}_INTERFACE_H_
-#define _${CFNAME}_INTERFACE_H_
-
-#include <${cfname}.h>
-EOF
-
-    for sub in $@; do
-        cat >> ${file} <<EOF
-#include <${cfname}/${sub}.h>
-
-/* sub-class headers */
-EOF
-    done
-
-    cat >> ${file} <<EOF
-/* end of sub-class headers */
-#endif /* _${CFNAME}_INTERFACE_H_ */
-EOF
-
-}
-
-put_makefile_am() {
-    file=$1
-    cfname=$2
-    cname=$3
-
-    shift 3
-    subs=$#
-    if [ $subs != 0 ]; then
-        cont="\\"
-    fi
-
-    > ${file}
-
-    cat >> ${file} <<EOF
-noinst_LTLIBRARIES = lib${cfname}.la
-lib${cfname}_la_SOURCES =\\
-        private.c  ${cont}
-EOF
-    X=$subs
-    for sub in $@; do
-        if [ $X == 1 ]; then
-            echo "        ${sub}.c" >> ${file}
-        else
-            echo "        ${sub}.c        \\" >> ${file}
-        fi
-        X=$((X-1))
-    done
-    cat >> ${file} <<EOF
-DEFS := @DEFS@ -I/usr/include -I. -I@top_srcdir@/src -I..
-
-pkgincludedir = \$(includedir)/${cfname}
-pkginclude_HEADERS = \\
-        private.h    \\
-        interface.h  ${cont}
-EOF
-    X=$subs
-    for sub in $@; do
-        if [ $X == 1 ]; then
-            echo "        ${sub}.h" >> ${file}
-        else
-            echo "        ${sub}.h  \\" >> ${file}
-        fi
-        X=$((X-1))
-    done
-    cat >> ${file} <<EOF
-include \$(top_srcdir)/Makefile.extra
-EOF
-}
-
 usage() {
     cat <<EOF
 usage:
@@ -369,12 +250,8 @@ opts:
 files are generated thus:
   <cfname>.h
   <cfname>.c
-  <cfname>/Makefile.am (if requested)
-  <cfname>/interface.h
-  <cfname>/private.h
-  <cfname>/private.c
-  <cfname>/<sub>.h
-  <cfname>/<sub>.c
+  <cfname>_<sub>.h
+  <cfname>_<sub>.c
   ...
 EOF
 }
@@ -455,15 +332,15 @@ if [ $overwrite == 0 ]; then
     }
     check_file ${base_dir}/${cfname}.h
     check_file ${base_dir}/${cfname}.c
-    check_file ${base_dir}/${cfname}/public.h
-    check_file ${base_dir}/${cfname}/public.c
-    check_file ${base_dir}/${cfname}/interface.c
-    if [ $gen_make == 1 ]; then
-        check_file ${base_dir}/${cfname}/Makefile.am
-    fi
+    check_file ${base_dir}/${cfname}_public.h
+    check_file ${base_dir}/${cfname}_public.c
+    check_file ${base_dir}/${cfname}_interface.c
+    # if [ $gen_make == 1 ]; then
+        # check_file ${base_dir}/${cfname}/Makefile.am
+    # fi
     for sub in $@; do
-        check_file ${base_dir}/${cfname}/${sub}.c
-        check_file ${base_dir}/${cfname}/${sub}.h
+        check_file ${base_dir}/${cfname}_${sub}.c
+        check_file ${base_dir}/${cfname}_${sub}.h
     done
     if [ $E == 1 ]; then
         echo "remove them or use option -o to overwrite"
@@ -471,24 +348,11 @@ if [ $overwrite == 0 ]; then
     fi
 fi
 
-# generate the component
-if [ ! -d ${base_dir}/${cfname} ]; then
-    mkdir -p "${base_dir}/${cfname}";
-fi
-
-put_component_c "${base_dir}/${cfname}.c" "${cfname}" "${cname}" "${prefix}" ${header}
-put_component_h "${base_dir}/${cfname}.h" "${cfname}" "${cname}" "${prefix}" ${header}
-put_private_c "${base_dir}/${cfname}/private.c" "${cfname}" "${cname}" "${prefix}" ${header}
-put_private_h "${base_dir}/${cfname}/private.h" "${cfname}" "${cname}" "${prefix}" ${header}
-
-put_interface_h "${base_dir}/${cfname}/interface.h" "${cfname}" "${cname}" "${prefix}" ${header} $@
+put_component_c "${base_dir}/${cfname}.c" "${cfname}" "${cname}" "${prefix}" "${header}"
+put_component_h "${base_dir}/${cfname}.h" "${cfname}" "${cname}" "${prefix}" "${header}" $@
 
 # # generate each sub component
 for sub in $@; do
-    put_sub_c "${base_dir}/${cfname}/${sub}.c" "${cfname}" "${cname}" "${prefix}" ${header} ${sub}
-    put_sub_h "${base_dir}/${cfname}/${sub}.h" "${cfname}" "${cname}" "${prefix}" ${header} ${sub}
+    put_sub_c "${base_dir}/${cfname}_${sub}.c" "${cfname}" "${cname}" "${prefix}" "${header}" ${sub}
+    put_sub_h "${base_dir}/${cfname}_${sub}.h" "${cfname}" "${cname}" "${prefix}" "${header}" ${sub}
 done
-
-if [ $gen_make == 1 ]; then
-    put_makefile_am "${base_dir}/${cfname}/Makefile.am" "${cfname}" "${cname}" $@
-fi
